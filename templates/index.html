@@ -97,6 +97,10 @@
             <option value="kmh">km/h</option>
             <option value="mph">mph</option>
         </select>
+
+        <label for="compare_history">Compare with history:</label>
+        <input type="checkbox" id="compare_history" name="compare_history">
+
         <br>
         <button type="submit">Get Weather</button>
     </form>
@@ -139,8 +143,32 @@
         </div>
     {% endif %}
     
-    {% if img_base64 %}
-        <img src="data:image/png;base64,{{ img_base64 }}" alt="Weather Plot">
+    {% if img_base64_temp %}
+        <img src="data:image/png;base64,{{ img_base64_temp }}" alt="Temperature Plot">
+    {% endif %}
+
+    {% if img_base64_humidity %}
+        <img src="data:image/png;base64,{{ img_base64_humidity }}" alt="Humidity Plot">
+    {% endif %}
+
+    {% if historical_data %}
+        <div class="weather-info">
+            <h2>Historical Weather Comparison:</h2>
+            <table border="1">
+                <tr>
+                    <th>Year</th>
+                    <th>Average Temperature</th>
+                    <th>Average Humidity (%)</th>
+                </tr>
+                {% for data in historical_data %}
+                    <tr>
+                        <td>{{ loop.index }} year(s) ago</td>
+                        <td>{{ (data | sum(attribute='temp') / data | length) | round(2) }}</td>
+                        <td>{{ (data | sum(attribute='humidity') / data | length) | round(2) }}</td>
+                    </tr>
+                {% endfor %}
+            </table>
+        </div>
     {% endif %}
 </body>
 </html>

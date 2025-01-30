@@ -3,9 +3,12 @@ import requests
 from urllib.parse import quote
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import base64
 import io
+from time import sleep
+import matplotlib
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
@@ -14,7 +17,8 @@ app = Flask(__name__)
 def get_weather_data(city, start_date=None, end_date=None, temp_unit="C", windspeed_unit="kmh"):
     api_key = os.getenv("API_KEY")
     encoded_city = quote(city)
-    url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{encoded_city}?unitGroup=metric&key={api_key}&contentType=json"
+    url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{encoded_city}/{start_date}/{end_date}?key={api_key}&"
+    #url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{encoded_city}?unitGroup=metric&key={api_key}&contentType=json"
     try:
         response = requests.get(url)
         response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
@@ -31,7 +35,7 @@ def get_weather_data(city, start_date=None, end_date=None, temp_unit="C", windsp
             humidities = [day['humidity'] for day in days]
             windspeeds = [convert_windspeed(day.get('windspeed', 0), windspeed_unit) for day in days]
 
-            img_base64 = generate_plot(dates, temps, humidities, city)
+            img_base64_temp, img_base64_humidity = generate_plot(dates, temps, humidities, city)
             alerts = check_weather_alerts(days, temp_unit, windspeed_unit)
             weather_info = [
                 {
@@ -43,19 +47,30 @@ def get_weather_data(city, start_date=None, end_date=None, temp_unit="C", windsp
                 for date, temp, humidity, windspeed in zip(dates, temps, humidities, windspeeds)
             ]
 
-            return weather_info, img_base64, alerts
+            return weather_info, img_base64_temp, img_base64_humidity, alerts
 
-        return None, None, None
+        return None, None, None, None
 
     except requests.exceptions.RequestException as e:
         print(f"API Request Error: {e}")
-        return None, None, None
+        return None, None, None, None
     except json.JSONDecodeError as e:
          print(f"JSON Decode Error: {e}")
-         return None, None, None
+         return None, None, None, None
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-        return None, None, None
+        return None, None, None, None
+    
+def get_historical_weather_data(city, start_date, end_date, temp_unit="C", windspeed_unit="kmh"):
+    historical_data = []
+    for i in range(1, 4):
+        historical_start_date = (datetime.strptime(start_date, '%Y-%m-%d') - timedelta(days=365*i)).strftime('%Y-%m-%d')
+        historical_end_date = (datetime.strptime(end_date, '%Y-%m-%d') - timedelta(days=365*i)).strftime('%Y-%m-%d')
+        data, _, _, _ = get_weather_data(city, historical_start_date, historical_end_date, temp_unit, windspeed_unit)
+        if data:
+            historical_data.append(data)
+        sleep(1)
+    return historical_data      
         
 
 def convert_temperature(temp, unit):
@@ -103,9 +118,9 @@ def check_weather_alerts(days, temp_unit, windspeed_unit):
 
 def generate_plot(dates, temps, humidities, city):
     try:
+        # Temperature plot
         plt.figure(figsize=(10, 6))
         plt.plot(dates, temps, marker='o', color='b', label="Temperature")
-        plt.plot(dates, humidities, marker='x', color='g', label="Humidity (%)")
         plt.title(f"Daily Weather in {city}", fontsize=16)
         plt.xlabel("Date", fontsize=12)
         plt.ylabel("Value", fontsize=12)
@@ -114,15 +129,30 @@ def generate_plot(dates, temps, humidities, city):
         plt.legend()
         plt.tight_layout()
 
-        # Save the plot to a buffer
-        img_buf = io.BytesIO()
-        plt.savefig(img_buf, format='png')
-        img_buf.seek(0)
-
-        # Encode the image as base64
-        img_base64 = base64.b64encode(img_buf.read()).decode('utf8')
+        # Save 
+        img_buf_temp = io.BytesIO()
+        plt.savefig(img_buf_temp, format='png')
+        img_buf_temp.seek(0)
+        img_base64_temp = base64.b64encode(img_buf_temp.read()).decode('utf8')
         plt.close()
-        return img_base64
+
+        plt.figure(figsize=(10, 6))
+        plt.plot(dates, humidities, marker='x', color='g', label="Humidity (%)")
+        plt.title(f"Daily Humidity in {city}", fontsize=16)
+        plt.xlabel("Date", fontsize=12)
+        plt.ylabel("Humidity (%)", fontsize=12)
+        plt.xticks(rotation=45)
+        plt.grid(alpha=0.3)
+        plt.legend()
+        plt.tight_layout()
+
+        img_buf_humidity = io.BytesIO()
+        plt.savefig(img_buf_humidity, format='png')
+        img_buf_humidity.seek(0)
+        img_base64_humidity = base64.b64encode(img_buf_humidity.read()).decode('utf8')
+        plt.close()
+
+        return img_base64_temp, img_base64_humidity
     except Exception as e:
         print(f"Plotting error: {e}")
         return None
@@ -130,24 +160,31 @@ def generate_plot(dates, temps, humidities, city):
 @app.route("/", methods=["GET", "POST"])
 def index():
     weather_data = None
-    img_base64 = None
+    img_base64_temp = None
+    img_base64_humidity = None
     alerts = None
+    historical_data = None
     if request.method == "POST":
         city = request.form.get("city")
         start_date = request.form.get("start_date")
         end_date = request.form.get("end_date")
         temp_unit = request.form.get("temp_unit", "C")
         windspeed_unit = request.form.get("windspeed_unit", "kmh")
+        compare_history = request.form.get("compare_history") == "on"
         
         if not city:
             return render_template("index.html", error="City is required")
         
         try:
-           weather_data, img_base64, alerts = get_weather_data(city, start_date, end_date, temp_unit, windspeed_unit)
+           weather_data, img_base64_temp, img_base64_humidity, alerts = get_weather_data(city, start_date, end_date, temp_unit, windspeed_unit)
+           if compare_history and start_date and end_date:
+                historical_data = get_historical_weather_data(city, start_date, end_date, temp_unit, windspeed_unit)
         except Exception as e:
            return render_template("index.html", error=str(e))
 
-    return render_template("index.html", weather_data=weather_data, img_base64=img_base64, alerts=alerts)
+    return render_template("index.html", weather_data=weather_data, img_base64_temp=img_base64_temp, img_base64_humidity=img_base64_humidity, alerts=alerts, historical_data=historical_data)
+
 
 if __name__ == "__main__":
     app.run(debug=True)
+    
