@@ -17,8 +17,8 @@ app = Flask(__name__)
 def get_weather_data(city, start_date=None, end_date=None, temp_unit="C", windspeed_unit="kmh"):
     api_key = os.getenv("API_KEY")
     encoded_city = quote(city)
-    url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{encoded_city}/{start_date}/{end_date}?key={api_key}&"
-    #url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{encoded_city}?unitGroup=metric&key={api_key}&contentType=json"
+    url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/{encoded_city}/{start_date}/{end_date}?unitGroup=metric&key={api_key}&"
+    print(url)
     try:
         response = requests.get(url)
         response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
@@ -70,12 +70,12 @@ def get_historical_weather_data(city, start_date, end_date, temp_unit="C", winds
         if data:
             historical_data.append(data)
         sleep(1)
-    return historical_data      
+    return historical_data          
         
 
 def convert_temperature(temp, unit):
     if unit == "F":
-        return (temp * 9/5) + 32
+        return (temp * 9/5) + 32 
     return temp
 
 def convert_windspeed(windspeed, unit):
